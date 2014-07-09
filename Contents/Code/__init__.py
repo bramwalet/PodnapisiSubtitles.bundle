@@ -1,6 +1,9 @@
 #hdbits.org
 
 import string, os, urllib, zipfile, re, copy
+from lxml.etree import fromstring
+import xmlrpclib
+from hashlib import md5, sha256
 
 PODNAPISI_MAIN_PAGE = "http://www.podnapisi.net"
 PODNAPISI_SEARCH_PAGE = "http://www.podnapisi.net/en/ppodnapisi/search?sT=%d&"
@@ -14,10 +17,42 @@ langPrefs2Podnapisi = {'sq':'29','ar':'12','be':'50','bs':'10','bg':'33','ca':'5
 
 mediaCopies = {}
 
+class PodnapisiClient:
+    
+    server = xmlrpclib.ServerProxy('http://ssp.podnapisi.net:8000')
+    token = None
+    
+    def getInstance(self):
+        if token == None:
+            if self.authenticate():
+                return server
+            else:
+                return None
+        else:
+            return server
+    
+    def authenticate(self):
+        result = server.initiate(OS_PLEX_USERAGENT)
+        if result['status'] != 200:
+            Log.Error("Initialize failed, status code: " + str(result['status']))
+            return false
+        username = 'bwalet'
+        password = sha256(md5('').hexdigest() + result['nonce']).hexdigest()
+        self.token = result['session']
+        result = server.authenticate(token, username, password)
+        if result['status'] != 200:
+            Log.Error("Authentication failed, status code: " + str(result['status']))
+            self.token = None
+            return false
+        else:
+            return true
+
+
 def Start():
     HTTP.CacheTime = 0
     HTTP.Headers['User-agent'] = OS_PLEX_USERAGENT
     Log("START CALLED")
+
 
 def ValidatePrefs():
     return

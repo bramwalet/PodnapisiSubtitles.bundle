@@ -1,12 +1,13 @@
 #hdbits.org
 
 import string, os, urllib, zipfile, re, copy
-from lxml.etree import fromstring
-import xmlrpclib
-from hashlib import md5, sha256
+import ssp
 
 PODNAPISI_MAIN_PAGE = "http://www.podnapisi.net"
 PODNAPISI_SEARCH_PAGE = "http://www.podnapisi.net/en/ppodnapisi/search?sT=%d&"
+PODNAPISI_API = "http://ssp.podnapisi.net:8000"
+PODNAPISI_STATIC_CONTENT = "http://www.podnapisi.net/static/podnapisi/"
+
 MOVIE_SEARCH = PODNAPISI_SEARCH_PAGE % 0
 TV_SEARCH = PODNAPISI_SEARCH_PAGE % 1
 
@@ -16,87 +17,79 @@ subtitleExt       = ['utf','utf8','utf-8','sub','srt','smi','rt','ssa','aqt','js
 langPrefs2Podnapisi = {'sq':'29','ar':'12','be':'50','bs':'10','bg':'33','ca':'53','zh':'17','cs':'7','da':'24','nl':'23','en':'2','et':'20','fi':'31','fr':'8','de':'5','el':'16','he':'22','hi':'42','hu':'15','is':'6','id':'54','it':'9','ja':'11','ko':'4','lv':'21','lt':'19','mk':'35','ms':'55','no':'3','pl':'26','pt':'32','ro':'13','ru':'27','sr':'36','sk':'37','sl':'1','es':'28','sv':'25','th':'44','tr':'30','uk':'46','vi':'51','hr':'38'}
 
 mediaCopies = {}
-
-class PodnapisiClient:
-    
-    server = xmlrpclib.ServerProxy('http://ssp.podnapisi.net:8000')
-    token = None
-    
-    def getInstance(self):
-        if token == None:
-            if self.authenticate():
-                return server
-            else:
-                return None
-        else:
-            return server
-    
-    def authenticate(self):
-        result = server.initiate(OS_PLEX_USERAGENT)
-        if result['status'] != 200:
-            Log.Error("Initialize failed, status code: " + str(result['status']))
-            return false
-        username = 'bwalet'
-        password = sha256(md5('').hexdigest() + result['nonce']).hexdigest()
-        self.token = result['session']
-        result = server.authenticate(token, username, password)
-        if result['status'] != 200:
-            Log.Error("Authentication failed, status code: " + str(result['status']))
-            self.token = None
-            return false
-        else:
-            return true
+sspClient = None 
 
 
 def Start():
+    global sspClient
     HTTP.CacheTime = 0
     HTTP.Headers['User-agent'] = OS_PLEX_USERAGENT
-    Log("START CALLED")
-
+    Log.Debug("START CALLED")
+    sspClient = ssp.PodnapisiSspClient(OS_PLEX_USERAGENT)
+    #sspClient.authenticate()
 
 def ValidatePrefs():
-    return
+    Log.Debug("Validate Prefs called.")
+    username = Prefs["username"]
+    password = Prefs["password"]
+    if username and password:
+        sspClient.resetToken()
+        Log.Debug("Validating username and password.")
+        if sspClient.authenticate(username, password):
+            Log.Debug("Validation ok")
+            return MessageContainer("Success", "Authentication successful.")
+        else: 
+            Log.Warn("Validation failed")
+            return MessageContainer("Error","Username or password invalid.")
+    else:
+        return
 
 #Prepare a list of languages we want subs for
 def getLangList():
     langList = [Prefs["langPref1"]]
     if(Prefs["langPref2"] != "None"):
         langList.append(Prefs["langPref2"])
-
     return langList
 
 def tvSearch(params, lang):
-    Log("Params: %s" % urllib.urlencode(params))
+    Log.Debug("Params: %s" % urllib.urlencode(params))
     searchUrl = TV_SEARCH + urllib.urlencode(params)
     return simpleSearch(searchUrl, lang)
 
 def movieSearch(params, lang):
-    Log("Params: %s" % urllib.urlencode(params))
+    Log.Debug("Params: %s" % urllib.urlencode(params))
     searchUrl = MOVIE_SEARCH + urllib.urlencode(params)
     return simpleSearch(searchUrl, lang)
-
 
 #Do a basic search for the filename and return all sub urls found
 def simpleSearch(searchUrl, lang = 'eng'):
     subUrls = []
-    subpageUrls = []
     searchUrl = searchUrl + "&sXML=1"
-    Log("searchUrl: %s" % searchUrl)
+    Log.Debug("searchUrl: %s" % searchUrl)
     elemXml = XML.ElementFromURL(searchUrl)
-    elemXmlUrls = elemXml.findall(".//url")
-    for url in elemXmlUrls:
-        Log("subpageUrl: " + url.text)
-        subpageUrls.append(url.text)
-
-    for subPageUrl in subpageUrls:
-        Log("Subpage: %s" % subPageUrl)
+    if len(elemXml.xpath("/results/subtitle")) > 0:    
+        # XML-RPC download
+        Log.Debug("Trying using XML-RPC method.")
+        if sspClient.authenticate(Prefs["username"], Prefs["password"]):
+            subtitleIds  = [ str(x) for x in elemXml.xpath("//id/text()") ]
+            subUrls = sspClient.getSubtitleUrls(subtitleIds)
+    
+        if not subUrls:
+            # web scraping
+            Log.Debug("Falling back to web-scraping.")
+            subUrls = scrapeDownloadLinks(elemXml.findall(".//url"))
+    return subUrls
+    
+def scrapeDownloadLinks(urls):
+    subUrls = []
+    for url in urls:
+        subPageUrl = url.text
+        Log.Debug("Subpage: %s" % subPageUrl)
         pageElem = HTML.ElementFromURL(subPageUrl)
         downloadUrl = getDownloadUrlFromPage(pageElem)
-        Log("DownloadURL: %s" % downloadUrl)
+        Log.Debug("DownloadURL: %s" % downloadUrl)
         subUrls.append(downloadUrl)
-
     return subUrls
-
 
 def getDownloadUrlFromPage(pageElem):
     dlPart = pageElem.xpath("//div[@class='footer']//a[@class='button big download']/@href")[0]
@@ -122,7 +115,7 @@ def searchSubs(data, lang, isTvShow):
     subUrls = doSearch(data, lang, isTvShow)
 
     if not subUrls:
-        Log("%d subs found - trying to remove release group" % len(subUrls))
+        Log.Debug("%d subs found - trying to remove release group" % len(subUrls))
         d = dict(data) # make a copy so that we still include release group for other searches
         del d['sR']
         subUrls = doSearch(d, lang, isTvShow)
@@ -132,18 +125,18 @@ def searchSubs(data, lang, isTvShow):
 def getSubsForPart(data, isTvShow=True):
     siList = []
     for lang in getLangList():
-        Log("Lang: %s,%s" % (lang, langPrefs2Podnapisi[lang]))
+        Log.Debug("Lang: %s,%s" % (lang, langPrefs2Podnapisi[lang]))
         data['sJ'] = langPrefs2Podnapisi[lang]
 
         subUrls = searchSubs(data, lang, isTvShow)
 
         for subUrl in subUrls:
-            Log("Getting subtitle from: %s" % subUrl)
+            Log.Debug("Getting subtitle from: %s" % subUrl)
             zipArchive = Archive.ZipFromURL(subUrl)
             for name in zipArchive:
-                Log("Name in zip: %s" % repr(name))
+                Log.Debug("Name in zip: %s" % repr(name))
                 if name[-1] == "/":
-                    Log("Ignoring folder")
+                    Log.Debug("Ignoring folder")
                     continue
 
                 subData = zipArchive[name]
@@ -158,6 +151,9 @@ def getReleaseGroup(filename):
     group = splitName[-2]
     return group
 
+
+        
+
 class PodnapisiSubtitlesAgentMovies(Agent.Movies):
     name = 'Podnapisi Movie Subtitles'
     languages = [Locale.Language.English]
@@ -165,21 +161,21 @@ class PodnapisiSubtitlesAgentMovies(Agent.Movies):
     contributes_to = ['com.plexapp.agents.imdb']
 
     def search(self, results, media, lang):
-        Log("MOVIE SEARCH CALLED")
+        Log.Debug("MOVIE SEARCH CALLED")
         mediaCopy = copy.copy(media.primary_metadata)
         uuid = String.UUID()
         mediaCopies[uuid] = mediaCopy
         results.Append(MetadataSearchResult(id = uuid, score = 100))
 
     def update(self, metadata, media, lang):
-        Log("MOVIE UPDATE CALLED")
+        Log.Debug("MOVIE UPDATE CALLED")
         mc = mediaCopies[metadata.id]
         for item in media.items:
             for part in item.parts:
-                Log("Title: %s" % media.title)
-                Log("Filename: %s" % part.file)
-                Log("Year: %s" % mc.year)
-                Log("Release group %s" % getReleaseGroup(part.file))
+                Log.Debug("Title: %s" % media.title)
+                Log.Debug("Filename: %s" % part.file)
+                Log.Debug("Year: %s" % mc.year)
+                Log.Debug("Release group %s" % getReleaseGroup(part.file))
 
                 data = {}
                 data['sK'] = media.title
@@ -201,18 +197,18 @@ class PodnapisiSubtitlesAgentTvShows(Agent.TV_Shows):
     contributes_to = ['com.plexapp.agents.thetvdb']
 
     def search(self, results, media, lang):
-        Log("TV SEARCH CALLED")
+        Log.Debug("TV SEARCH CALLED")
         results.Append(MetadataSearchResult(id = 'null', score = 100))
 
     def update(self, metadata, media, lang):
-        Log("TvUpdate. Lang %s" % lang)
+        Log.Debug("TvUpdate. Lang %s" % lang)
         for season in media.seasons:
             for episode in media.seasons[season].episodes:
                 for item in media.seasons[season].episodes[episode].items:
-                    Log("show: %s" % media.title)
-                    Log("Season: %s, Ep: %s" % (season, episode))
+                    Log.Debug("show: %s" % media.title)
+                    Log.Debug("Season: %s, Ep: %s" % (season, episode))
                     for part in item.parts:
-                        Log("Release group: %s" % getReleaseGroup(part.file))
+                        Log.Debug("Release group: %s" % getReleaseGroup(part.file))
                         data = {}
                         data['sK'] = media.title
                         data['sTS'] = season
@@ -223,5 +219,3 @@ class PodnapisiSubtitlesAgentTvShows(Agent.TV_Shows):
 
                         for si in siList:
                             part.subtitles[Locale.Language.Match(si.lang)][si.url] = Proxy.Media(si.sub, ext=si.ext) 
-
-

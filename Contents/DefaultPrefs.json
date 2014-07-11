@@ -1,4 +1,18 @@
 [
+		{
+                "id": "username",
+                "label": "Podnapisi.NET Username",
+                "type": "text",
+                "default": "None"
+        },
+        {
+                "id": "password",
+                "label": "Podnapisi.NET Password",
+                "type": "text",
+                "option": "hidden",
+                "default": "None",
+                "secure": "true" 
+        },
         {
                 "id": "langPref1",
                 "label": "Subtitle Language (1)",
@@ -12,5 +26,5 @@
                 "type": "enum",
                 "values": ["None", "sq","ar","be","bs","bg","ca","zh","cs","da","nl","en","et","fi","fr","de","el","he","hi","hu","is","id","it","ja","ko","lv","lt","mk","ms","no","pl","pt","ro","ru","sr","sk","sl","es","sv","th","tr","uk","vi","hr"],
                 "default": "None"
-        }        
+        }            
 ]

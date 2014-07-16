@@ -3,14 +3,14 @@
                 "id": "username",
                 "label": "Podnapisi.NET Username",
                 "type": "text",
-                "default": "None"
+                "default": "Username"
         },
         {
                 "id": "password",
                 "label": "Podnapisi.NET Password",
                 "type": "text",
                 "option": "hidden",
-                "default": "None",
+                "default": "",
                 "secure": "true" 
         },
         {

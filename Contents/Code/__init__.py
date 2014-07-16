@@ -24,7 +24,7 @@ def Start():
     global sspClient
     HTTP.CacheTime = 0
     HTTP.Headers['User-agent'] = OS_PLEX_USERAGENT
-    Log.Debug("START CALLED")
+    Log.Debug("START  CALLED")
     sspClient = ssp.PodnapisiSspClient(OS_PLEX_USERAGENT)
     #sspClient.authenticate()
 

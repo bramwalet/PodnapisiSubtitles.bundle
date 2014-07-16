@@ -28,24 +28,28 @@ class PodnapisiSspClient:
     
     def authenticate(self, username, password):
         if not self.token: 
-            result = self.server.initiate(self.userAgent)
-            if result['status'] != Response.Ok:
-                Log.Error("XML-RPC: Initialize failed, status code: " + str(result['status']))
+            if username and password: 
+                result = self.server.initiate(self.userAgent)
+                if result['status'] != Response.Ok:
+                    Log.Error("XML-RPC: Initialize failed, status code: " + str(result['status']))
+                    return False
+                else:
+                    Log.Debug("XML-RPC: Initiate succesful.")
+                    # TODO: set Language filters (server.setFilters())
+        
+                password = sha256(md5(password).hexdigest() + result['nonce']).hexdigest()
+                self.token = result['session']
+                result = self.server.authenticate(self.token, username, password)
+                if result['status'] != Response.Ok:
+                    Log.Error("XML-RPC: Authentication failed, status code: %s", str(result['status']))
+                    self.token = None
+                    return False
+                else:
+                    Log.Debug("XML-RPC: Authentication succesful.")
+                    return True
+            else: 
+                Log.Warn("XML-RPC: Username or password not specified.")
                 return False
-            else:
-                Log.Debug("XML-RPC: Initiate succesful.")
-                # TODO: set Language filters (server.setFilters())
-    
-            password = sha256(md5(password).hexdigest() + result['nonce']).hexdigest()
-            self.token = result['session']
-            result = self.server.authenticate(self.token, username, password)
-            if result['status'] != Response.Ok:
-                Log.Error("XML-RPC: Authentication failed, status code: %s", str(result['status']))
-                self.token = None
-                return False
-            else:
-                Log.Debug("XML-RPC: Authentication succesful.")
-                return True
         else: 
             Log.Debug("XML-RPC: Already signed in")
             return True;
